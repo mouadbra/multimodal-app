@@ -171,7 +171,10 @@ Run the frontend:
 ```bash
 bun run dev
 ```
-
+## Usage / Demo
+- The video shows complete usage: audio recording, image generation, similarity analysis, and audio description
+- Watch the demo here: [Multi-Modal AI Pipeline Demo](https://drive.google.com/file/d/10Ls9aD2i4eAQPRtq1aETY7kVneZyHTL1/view?usp=sharing)
+  
 ## Typical Flow
 
 1. Open `http://localhost:5173/`
