@@ -10,6 +10,9 @@ This application allows you to:
 - Generate an image from the transcript using **FLUX 1.1 Pro** (Azure AI Foundry)
 - Analyze the generated image with **CLIP** (similarity score) and **GPT-4o Vision** (description)
 - Convert the image description back to speech via **Azure OpenAI TTS**
+-  Run **evaluation batches** over multiple prompts to measure quality over time
+- Visualize batch results: similarity scores, objective LLM evaluations, 
+  image gallery, technical issue breakdown
 
 The frontend lets you record your voice, trigger the full pipeline, and visualize each step with a progress bar.
 
@@ -24,6 +27,9 @@ The frontend lets you record your voice, trigger the full pipeline, and visualiz
   - `/generate_image` → FLUX 1.1 Pro image generation
   - `/analyze_image_similarity` → CLIP similarity + GPT-4o Vision description
   - `/text_to_speech` → Azure OpenAI TTS
+  -  `/evaluate` → run a full evaluation batch (async, parallel)
+  - `/evaluation/{batch_id}` → retrieve batch results
+  - `/evaluation_batches` → list all batches
 
 - **LLM**: Azure OpenAI GPT-4o for vision analysis
 
