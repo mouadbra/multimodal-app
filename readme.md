@@ -1,6 +1,6 @@
 # Multi-Modal AI Pipeline & Evaluation System
 
-Process audio, generate images, analyze them, and evaluate quality at scale. Speak a prompt, watch it become an image via FLUX, then hear the AI describe it back to you — and run evaluation batches to measure quality over time.
+Process audio, generate images, analyze them, and evaluate quality at scale. Speak a prompt, watch it become an image via FLUX, then hear the AI describe it back to you,   and run evaluation batches to measure quality over time.
 
 ## Overview
 
@@ -272,13 +272,9 @@ bun run dev
    - **Metrics**: technical issues frequency
    - **Gallery**: all generated images with scores and issue tags
 
-## Usage / Demo
-- The video shows complete usage: audio recording, image generation, similarity analysis, audio description, and evaluation dashboard
-- Watch the demo here: [Multi-Modal AI Pipeline Demo]()
+
 
 ## Notes
 
 - CLIP similarity scores of 30-50% are normal for long descriptive prompts — it's a cosine distance, not a quality score
-- FLUX returns images as base64 (not a URL like DALL-E) — images are displayed directly in the browser
-- Evaluation batches are limited to 3 prompts × 1 iteration by default to stay within Modal's 300s timeout
 - All Azure credentials are stored as Modal secrets and never exposed to the frontend
