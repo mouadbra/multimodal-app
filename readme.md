@@ -1,6 +1,6 @@
-# Multi-Modal AI Pipeline
+# Multi-Modal AI Pipeline & Evaluation System
 
-Process audio, generate images, analyze them, and get a spoken description back. Speak a prompt, watch it become an image via FLUX, then hear the AI describe it back to you.
+Process audio, generate images, analyze them, and evaluate quality at scale. Speak a prompt, watch it become an image via FLUX, then hear the AI describe it back to you — and run evaluation batches to measure quality over time.
 
 ## Overview
 
@@ -10,32 +10,33 @@ This application allows you to:
 - Generate an image from the transcript using **FLUX 1.1 Pro** (Azure AI Foundry)
 - Analyze the generated image with **CLIP** (similarity score) and **GPT-4o Vision** (description)
 - Convert the image description back to speech via **Azure OpenAI TTS**
--  Run **evaluation batches** over multiple prompts to measure quality over time
-- Visualize batch results: similarity scores, objective LLM evaluations, 
-  image gallery, technical issue breakdown
+- Run **evaluation batches** over multiple prompts and iterations to measure quality over time
+- Visualize batch results: average similarity scores, objective LLM evaluations, image gallery, technical issue breakdown
 
-The frontend lets you record your voice, trigger the full pipeline, and visualize each step with a progress bar.
+The frontend provides two tabs: a **Pipeline** tab for the multi-modal demo and an **Evaluation** tab with a full dashboard.
 
 ## Technical Architecture
 
 - **Frontend**: React + TypeScript + Tailwind + Shadcn/ui
-  - Audio recording via `MediaRecorder` API
-  - Pipeline progress bar → `/transcribe` → `/generate_image` → `/analyze_image_similarity` → `/text_to_speech`
+  - **Pipeline tab**: Audio recording → `/transcribe` → `/generate_image` → `/analyze_image_similarity` → `/text_to_speech`
+  - **Evaluation tab**: Batch launcher + dashboard with 4 tabs (Overview / Prompts / Metrics / Gallery)
 
 - **Backend**: FastAPI + Modal
   - `/transcribe` → Whisper transcription
   - `/generate_image` → FLUX 1.1 Pro image generation
   - `/analyze_image_similarity` → CLIP similarity + GPT-4o Vision description
   - `/text_to_speech` → Azure OpenAI TTS
-  -  `/evaluate` → run a full evaluation batch (async, parallel)
-  - `/evaluation/{batch_id}` → retrieve batch results
-  - `/evaluation_batches` → list all batches
+  - `/evaluate` → Run a full evaluation batch (async, parallel)
+  - `/evaluation/{batch_id}` → Retrieve batch results
+  - `/evaluation_batches` → List all batches
 
-- **LLM**: Azure OpenAI GPT-4o for vision analysis
+- **Database**: SQLite on Modal Volume (4 tables)
+
+- **LLM**: Azure OpenAI GPT-4o for vision analysis and objective evaluation
 
 - **Embeddings**: CLIP (`clip-ViT-B-32`) via `sentence-transformers` for image-text similarity
 
-- **Infrastructure**: Modal for serverless deployment
+- **Infrastructure**: Modal for serverless deployment with persistent volume
 
 ## Code Structure
 
@@ -43,28 +44,83 @@ The frontend lets you record your voice, trigger the full pipeline, and visualiz
 multimodal_app/
 │
 ├── backend_service/
-│   ├── .env                         # Azure credentials (not committed)
+│   ├── .env                              # Azure credentials (not committed)
 │   ├── pyproject.toml
 │   └── src/modal_app/
-│       ├── common.py                # Modal app, FastAPI instance, CORS, image
-│       ├── models.py                # Pydantic request models
+│       ├── common.py                     # Modal app, FastAPI instance, CORS, image
+│       ├── models.py                     # Pydantic models (pipeline + evaluation)
 │       └── main.py
-│           ├── get_chat_client()    # Azure GPT-4o client
-│           ├── get_whisper_client() # Azure Whisper client
-│           ├── get_tts_client()     # Azure TTS client
-│           ├── /transcribe          # POST - audio → text
-│           ├── /generate_image      # POST - text → image (FLUX)
-│           ├── /analyze_image_similarity  # POST - CLIP + GPT-4o Vision
-│           └── /text_to_speech      # POST - text → audio
+│           ├── init_db()                 # Create SQLite tables
+│           ├── get_chat/whisper/tts_client() # Azure OpenAI clients
+│           ├── /transcribe               # POST - audio → text
+│           ├── /generate_image           # POST - text → image (FLUX)
+│           ├── /analyze_image_similarity # POST - CLIP + GPT-4o Vision
+│           ├── /text_to_speech           # POST - text → audio
+│           ├── process_single_iteration()# Core eval loop (async)
+│           ├── objective_evaluation()    # Structured LLM eval
+│           ├── describe_image()          # Free-form image description
+│           ├── write_results_to_db()     # Persist eval results
+│           ├── calculate_metrics()       # Aggregate scores
+│           ├── /evaluate                 # POST - run batch evaluation
+│           ├── /evaluation/{batch_id}    # GET - retrieve batch results
+│           └── /evaluation_batches       # GET - list all batches
 │
 └── frontend_service/
-    ├── .env                         # VITE_MODAL_URL
+    ├── .env                              # VITE_MODAL_URL
     └── src/
-        ├── App.tsx                  # Main component
+        ├── App.tsx                       # Main component (Pipeline + Evaluation tabs)
         └── components/ui/
             ├── button.tsx
             ├── card.tsx
             └── progress.tsx
+```
+
+## Database
+
+### Table 1: Evaluation Batches
+```sql
+CREATE TABLE evaluation_batches (
+    batch_id    TEXT PRIMARY KEY,
+    timestamp   DATETIME NOT NULL,
+    description TEXT
+);
+```
+
+### Table 2: Test Prompts
+```sql
+CREATE TABLE test_prompts (
+    prompt_id   TEXT PRIMARY KEY,
+    prompt_text TEXT NOT NULL
+);
+```
+
+### Table 3: Generated Images
+```sql
+CREATE TABLE generated_images (
+    image_id             TEXT PRIMARY KEY,
+    batch_id             TEXT NOT NULL,
+    prompt_id            TEXT NOT NULL,
+    prompt_text          TEXT NOT NULL,
+    image_data           TEXT NOT NULL,       -- base64
+    iteration            INTEGER NOT NULL,
+    similarity_score     REAL,               -- CLIP score (0-100)
+    prompt_elements      JSON,
+    objective_evaluation JSON,               -- structured LLM eval
+    llm_feedback         TEXT,
+    FOREIGN KEY (batch_id) REFERENCES evaluation_batches(batch_id),
+    FOREIGN KEY (prompt_id) REFERENCES test_prompts(prompt_id)
+);
+```
+
+### Table 4: Batch Metrics
+```sql
+CREATE TABLE batch_metrics (
+    batch_id             TEXT NOT NULL,
+    avg_similarity_score REAL,
+    avg_llm_score        REAL,
+    timestamp            DATETIME NOT NULL,
+    FOREIGN KEY (batch_id) REFERENCES evaluation_batches(batch_id)
+);
 ```
 
 ## Multi-Modal Pipeline Flow
@@ -84,18 +140,37 @@ FLUX 1.1 Pro  → 🖼️  Generated Image (base64)
 Azure TTS → 🔊 Audio Description
 ```
 
+## Evaluation System Flow
+
+```
+POST /evaluate
+  ↓
+Create batch record in SQLite
+  ↓
+For each prompt × N iterations (async parallel):
+  ├── generate_image()              ← FLUX 1.1 Pro
+  ├── analyze_image_similarity()    ← CLIP score
+  ├── objective_evaluation()        ← Structured LLM check (JSON)
+  └── describe_image()              ← Free-form feedback
+  ↓
+write_results_to_db()
+  ↓
+calculate_metrics() → EvaluationResponse
+```
+
 ## Technologies Used
 
 ### Backend
 
 - **FastAPI**: Python web framework
-- **Modal**: Serverless deployment
+- **Modal**: Serverless deployment with persistent volume
+- **SQLite**: Lightweight database for storing eval results
 - **sentence-transformers**: CLIP model (`clip-ViT-B-32`) for image-text similarity
 - **Pillow**: Image processing
-- **Pydantic**: Request validation
+- **Pydantic**: Structured output validation for LLM responses
 - **Azure OpenAI**:
   - `whisper` for speech-to-text
-  - `gpt-4o` for vision analysis
+  - `gpt-4o` for vision analysis and objective evaluation
   - `tts` for text-to-speech
 - **FLUX 1.1 Pro** (Azure AI Foundry): Image generation
 
@@ -177,15 +252,33 @@ Run the frontend:
 ```bash
 bun run dev
 ```
-## Usage / Demo
-- The video shows complete usage: audio recording, image generation, similarity analysis, and audio description
-- Watch the demo here: [Multi-Modal AI Pipeline Demo](https://drive.google.com/file/d/10Ls9aD2i4eAQPRtq1aETY7kVneZyHTL1/view?usp=sharing)
-  
+
 ## Typical Flow
 
-1. Open `http://localhost:5173/`
+### Multi-Modal Pipeline
+1. Open `http://localhost:5173/` → **Pipeline** tab
 2. Click **"Demander les permissions"** and select your microphone
 3. Click **"Démarrer"** and describe an image out loud
 4. Click **"Arrêter"** then **"Traiter"**
-5. Watch the pipeline progress: Transcription → Image Generation → Analysis → Audio
-6. See your transcript, generated image, similarity score, and hear the AI description
+5. Watch the pipeline: Transcription → Image Generation → Analysis → Audio
+
+### Evaluation Batch
+1. Go to **Evaluation** tab
+2. Enter a description (e.g. "Test batch #1") and click **Lancer**
+3. Wait ~3-5 min for 3 images to be generated and evaluated
+4. Explore the 4 tabs:
+   - **Overview**: avg similarity score + avg objective score
+   - **Prompts**: list of prompts used
+   - **Metrics**: technical issues frequency
+   - **Gallery**: all generated images with scores and issue tags
+
+## Usage / Demo
+- The video shows complete usage: audio recording, image generation, similarity analysis, audio description, and evaluation dashboard
+- Watch the demo here: [Multi-Modal AI Pipeline Demo]()
+
+## Notes
+
+- CLIP similarity scores of 30-50% are normal for long descriptive prompts — it's a cosine distance, not a quality score
+- FLUX returns images as base64 (not a URL like DALL-E) — images are displayed directly in the browser
+- Evaluation batches are limited to 3 prompts × 1 iteration by default to stay within Modal's 300s timeout
+- All Azure credentials are stored as Modal secrets and never exposed to the frontend
